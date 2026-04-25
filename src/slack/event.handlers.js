@@ -1,6 +1,6 @@
 import * as AuthService from "../services/auth.service.js";
 import * as DashboardView from "../views/dashboard.view.js";
-import * as ResumeService from "../services/resume.service.js";
+// import * as ResumeService from "../services/resume.service.js";
 import * as CandidateService from "../services/candidate.service.js";
 import * as SlackService from "../services/slack.service.js";
 import { db } from "../lib/db.js";
@@ -142,13 +142,18 @@ export async function handleMessageEvent(event) {
   const { user: slackUserId } = event;
   switch (event.subtype) {
     case "file_share":
-      const parsedResumes = await ResumeService.parseResume(event.files);
-      const addCandidatesMessage =
-        await CandidateService.buildCandidatesMessage(
-          parsedResumes,
-          slackUserId,
-        );
-      SlackService.sendMessageToUser(event.user, addCandidatesMessage);
+      // const parsedResumes = await ResumeService.parseResume(event.files);
+      const addCandidateReplyMessage =
+        await CandidateService.addCandidateReplyView(event.files);
+      addCandidateReplyMessage.thread_ts = event.thread_ts || event.ts; // reply in thread
+      addCandidateReplyMessage.blocks.forEach((blocks) => {
+        // log blocks for debugging
+        SlackService.sendMessageToUser(slackUserId, {
+          thread_ts: addCandidateReplyMessage.thread_ts,
+          text: addCandidateReplyMessage.text,
+          blocks, // send one block at a time for better formatting in Slack
+        });
+      });
       break;
     default:
       // Handle regular messages or other subtypes if needed

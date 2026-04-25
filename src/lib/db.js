@@ -19,10 +19,17 @@ const pool = new Pool({
 
 export async function initDB() {
   try {
-    const client = await pool.connect();
-    const res = await client.query("SELECT NOW()");
+    const res = await pool.query("SELECT NOW()");
     console.log("✅ PostgreSQL connected at:", res.rows[0].now);
-    client.release();
+
+    pool.on("connect", () => {
+      console.log("New DB connection established");
+    });
+
+    // 👇 IMPORTANT: keep pool alive
+    pool.on("error", (err) => {
+      console.error("Unexpected DB error", err);
+    });
   } catch (err) {
     console.error("❌ PostgreSQL connection error:", err.message);
     process.exit(1);

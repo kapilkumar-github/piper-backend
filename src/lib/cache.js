@@ -5,5 +5,9 @@ export function setSelectedTeam(userId, teamId) {
 }
 
 export function getSelectedTeam(userId) {
-  return SELECTED_TEAM_OBJECT[userId];
+  let selectedTeam = SELECTED_TEAM_OBJECT[userId];
+  if (!selectedTeam) {
+    selectedTeam = null;
+  }
+  return selectedTeam;
 }

@@ -4,6 +4,7 @@ import {
   events,
   installation,
   mockSlackInstallFlow,
+  options,
 } from "../controllers/slack.controller.js";
 
 const router = express.Router();
@@ -15,6 +16,7 @@ router.post(
 );
 
 router.post("/events", events);
+router.post("/options", express.urlencoded({ extended: true }), options);
 
 router.get("/install", mockSlackInstallFlow);
 router.get("/callback", installation);

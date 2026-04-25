@@ -1,3 +1,5 @@
+import { getSelectedTeam } from "../lib/cache.js";
+import { candidateDropDownOptions } from "../services/candidate.service.js";
 import * as SlackEventHandlers from "../slack/event.handlers.js";
 import * as SlackInteractionHandlers from "../slack/interaction.handlers.js";
 
@@ -100,6 +102,25 @@ export const events = (req, res) => {
   }
 };
 
+export const options = async (req, res) => {
+  const payload = JSON.parse(req.body.payload);
+  const query = payload.value || "";
+  const teamId = getSelectedTeam(payload.user.id);
+
+  switch (payload.action_id) {
+    case "select_candidate":
+      const options = await candidateDropDownOptions(
+        query,
+        teamId,
+        payload.user.id,
+      );
+      res.json({ options });
+      break;
+    default:
+      res.status(400).json({ options: [] });
+  }
+};
+
 // Interaction Block
 function handleBlockActions(payload) {
   const action = payload.actions[0];
@@ -116,14 +137,21 @@ function handleBlockActions(payload) {
         payload.trigger_id,
         action.value,
       );
-    case "add_candidate":
-      const { candidate, index } = JSON.parse(action.value);
-      const values = payload.state.values[`candidate_details_${index}`];
-      return SlackInteractionHandlers.handleAddCandidate(
-        payload,
-        values,
-        candidate,
-        index,
+    case "open_add_candidate_modal":
+      return SlackInteractionHandlers.openAddCandidateModal(
+        payload.trigger_id,
+        payload.user.id,
+        action.value,
+        payload.message.ts || payload.message.thread_ts, // pass message ts for later updates
+        payload.channel.id, // pass channel ID for later updates
+      );
+    case "open_schedule_interview_modal":
+      return SlackInteractionHandlers.openScheduleInterviewModal(
+        payload.trigger_id,
+        payload.user.id,
+        action.value,
+        payload.message.ts || payload.message.thread_ts, // pass message ts for later updates
+        payload.channel.id, // pass channel ID for later updates
       );
     default:
       console.log("Unhandled block action:", action.action_id);
@@ -136,6 +164,14 @@ function handleViewSubmission(payload) {
       return SlackInteractionHandlers.handleCreateTeamSubmission(payload);
     case "create_job_modal":
       return SlackInteractionHandlers.handleCreateJobSubmission(payload);
+    case "add_candidate_modal":
+      const formData = payload.view.state.values;
+      const privateMetadata = JSON.parse(payload.view.private_metadata);
+      return SlackInteractionHandlers.handleAddCandidate(
+        payload,
+        formData,
+        privateMetadata,
+      );
     default:
       console.log("Unhandled view submission:", payload.view.callback_id);
   }

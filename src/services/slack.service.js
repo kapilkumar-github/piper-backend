@@ -69,6 +69,7 @@ export async function sendMessageToUser(userId, message) {
     },
     body: JSON.stringify({
       channel: userId,
+      thread_ts: message.thread_ts, // reply in thread if ts is provided
       text: message.text,
       blocks: message.blocks,
     }),
@@ -78,7 +79,7 @@ export async function sendMessageToUser(userId, message) {
 export async function updateChatMessage(channelId, ts, text, blocks) {
   const botToken = await AuthService.getSlackBotToken();
 
-  await fetch("https://slack.com/api/chat.update", {
+  return await fetch("https://slack.com/api/chat.update", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${botToken}`,
@@ -89,6 +90,22 @@ export async function updateChatMessage(channelId, ts, text, blocks) {
       ts,
       text,
       blocks,
+    }),
+  });
+}
+
+export async function openModal(triggerId, modalView) {
+  const botToken = await AuthService.getSlackBotToken();
+
+  await fetch("https://slack.com/api/views.open", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      trigger_id: triggerId,
+      view: modalView,
     }),
   });
 }

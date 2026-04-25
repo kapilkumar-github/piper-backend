@@ -4,6 +4,9 @@ import * as TeamService from "../services/team.service.js";
 import * as JobService from "../services/job.service.js";
 import * as CandidateService from "../services/candidate.service.js";
 import * as Cache from "../lib/cache.js";
+import { CandidateAddedMessage } from "../messages/candidate.msg.js";
+import { Modal } from "antd";
+import { ScheduleInterviewForm } from "../views/modal.view.js";
 
 export async function handleTeamSwitch(action, slackUserId) {
   const selectedTeamId = action.selected_option.value;
@@ -172,49 +175,239 @@ export const handleCreateJobSubmission = async (payload) => {
   // For now, just log the values. In a real implementation, you'd save this to the database and update the UI.
   console.log("Job created successfully");
 };
+export async function openAddCandidateModal(
+  triggerId,
+  slackUserId,
+  action,
+  addCandidateMessageId,
+  channelId,
+  candidate = {},
+) {
+  // ✅ Safe parsing
+  const parsed = typeof action === "string" ? JSON.parse(action) : action;
+  const { file, index } = parsed;
+
+  // ✅ Better metadata for later use
+  const privateMetadata = {
+    channelId,
+    addCandidateMessageId,
+    fileUrl: file.url_private,
+    fileName: file.name,
+    fileId: file.id,
+    index,
+  };
+
+  const selectedTeamId = Cache.getSelectedTeam(slackUserId);
+  const jobs = await JobService.getJobsByTeamId(selectedTeamId);
+
+  await SlackService.openModal(triggerId, {
+    type: "modal",
+    callback_id: "add_candidate_modal",
+    title: { type: "plain_text", text: "Add Candidate" },
+    submit: { type: "plain_text", text: "Add" },
+    close: { type: "plain_text", text: "Cancel" },
+    private_metadata: JSON.stringify(privateMetadata),
+
+    blocks: [
+      // 📎 Resume link (opens in Slack viewer)
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Resume:* <${file.permalink}|${file.name}>`,
+        },
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Team:* ${selectedTeamId ? selectedTeamId : "N/A"}`,
+        },
+      },
+
+      // 👤 Name
+      {
+        type: "input",
+        block_id: "name_block",
+        label: {
+          type: "plain_text",
+          text: "Name",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "name",
+          initial_value: candidate?.name || "",
+          placeholder: {
+            type: "plain_text",
+            text: "Enter full name",
+          },
+        },
+      },
+
+      // 📧 Email
+      {
+        type: "input",
+        block_id: "email_block",
+        label: {
+          type: "plain_text",
+          text: "Email",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "email",
+          initial_value: candidate?.email || "",
+          placeholder: {
+            type: "plain_text",
+            text: "example@email.com",
+          },
+        },
+      },
+
+      // 📱 Phone
+      {
+        type: "input",
+        block_id: "phone_block",
+        label: {
+          type: "plain_text",
+          text: "Phone Number",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "phone",
+          initial_value: candidate?.phone || "",
+          placeholder: {
+            type: "plain_text",
+            text: "+91 9876543210",
+          },
+        },
+      },
+
+      // 📊 Experience (dropdown instead of free text)
+      {
+        type: "input",
+        block_id: "experience_block",
+        label: {
+          type: "plain_text",
+          text: "Experience",
+        },
+        element: {
+          type: "static_select",
+          action_id: "experience",
+          placeholder: {
+            type: "plain_text",
+            text: "Select experience",
+          },
+          options: [
+            "0-1 years",
+            "1-3 years",
+            "3-5 years",
+            "5-8 years",
+            "8+ years",
+          ].map((exp) => ({
+            text: { type: "plain_text", text: exp },
+            value: exp,
+          })),
+        },
+      },
+
+      // 💼 Job selection (safe + optional)
+      {
+        type: "input",
+        block_id: "job_block",
+        optional: true,
+        label: {
+          type: "plain_text",
+          text: "Select Job",
+        },
+        element: {
+          type: "static_select",
+          action_id: "select_job_add_candidate_modal",
+          placeholder: {
+            type: "plain_text",
+            text: "Select a job",
+          },
+          options: jobs.length
+            ? jobs.map((job) => ({
+                text: {
+                  type: "plain_text",
+                  text: job.title,
+                },
+                value: job.id,
+              }))
+            : [
+                {
+                  text: {
+                    type: "plain_text",
+                    text: "No jobs available",
+                  },
+                  value: "no_jobs",
+                },
+              ],
+        },
+      },
+    ],
+  });
+}
 
 export const handleAddCandidate = async (
   payload,
-  selectedValues,
-  candidate,
+  formData,
+  privateMetadata,
   index,
 ) => {
+  const { addCandidateMessageId, channelId, fileUrl } = privateMetadata;
   // Here you would typically open a modal to input candidate details, similar to the create job modal.
-  CandidateService.addCandidate(
+  const candidate = {
+    name: formData.name_block.name.value,
+    email: formData.email_block.email.value,
+    phone: formData.phone_block.phone.value,
+    experience: formData.experience_block.experience.selected_option.value,
+    resumeUrl: fileUrl,
+    jobId: formData.job_block?.select_job_add_candidate_modal?.selected_option
+      ? formData.job_block.select_job_add_candidate_modal.selected_option.value
+      : null,
+    teamId: Cache.getSelectedTeam(payload.user.id),
+  };
+  const result = await CandidateService.addCandidate(
     candidate, // pass the individual candidate data
-    selectedValues,
     payload.user.id,
   );
 
-  const updatedBlocks = payload.message.blocks
-    .map((block) => {
-      // Replace the specific candidate block
-      if (block.block_id === `candidate_details_${index}`) {
-        return {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `Team: ${selectedValues.select_team.selected_option.text}\nJob: ${selectedValues.select_job.selected_option.text}\n\n✅ *Candidate Added*`,
-          },
-        };
-      }
+  const postCandidateAddedMessage = CandidateAddedMessage(result[0]);
 
-      // Remove actions block for this candidate
-      if (
-        block.type === "actions" &&
-        block.block_id === `candidate_details_${index}`
-      ) {
-        return null;
-      }
-
-      return block;
-    })
-    .filter(Boolean);
-  // Update the UI
-  await SlackService.updateChatMessage(
-    payload.channel.id,
-    payload.message.ts,
-    "Candidate added",
-    updatedBlocks,
+  console.log("Candidate added successfully:", result[0]);
+  console.log(
+    "Post-add candidate message:",
+    channelId,
+    addCandidateMessageId,
+    postCandidateAddedMessage,
   );
+
+  // Update the original message with candidate details and actions
+  const response = await SlackService.updateChatMessage(
+    channelId,
+    addCandidateMessageId,
+    postCandidateAddedMessage.text,
+    postCandidateAddedMessage.blocks,
+  );
+
+  console.log("Slack API response for updating candidate message:", response);
+  if (!response.ok) {
+    console.error("Failed to update candidate message:", response.error);
+  }
 };
+
+export async function openScheduleInterviewModal(
+  triggerId,
+  slackUserId,
+  action,
+  addCandidateMessageId,
+  channelId,
+  candidate = {},
+) {
+  // Similar structure to openAddCandidateModal, but with date/time pickers and interview details
+  await SlackService.openModal(
+    triggerId,
+    ScheduleInterviewForm(channelId, addCandidateMessageId),
+  );
+}

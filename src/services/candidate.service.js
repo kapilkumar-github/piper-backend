@@ -3,6 +3,49 @@ import * as TeamService from "./team.service.js";
 import * as Cache from "../lib/cache.js";
 import * as JobService from "./job.service.js";
 
+export async function addCandidateReplyView(resumes) {
+  const blocks = [];
+
+  resumes.forEach((file, index) => {
+    blocks.push([
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*📄 File:* ${file.name || "Unnamed file"}`,
+        },
+      },
+      {
+        type: "actions",
+        block_id: `add_candidate_${index}`,
+        elements: [
+          {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "+ Add Candidate",
+            },
+            style: "primary",
+            action_id: "open_add_candidate_modal",
+            value: JSON.stringify({
+              file,
+              index,
+            }),
+          },
+        ],
+      },
+      {
+        type: "divider",
+      },
+    ]);
+  });
+
+  return {
+    text: "Add candidates from uploaded files",
+    blocks,
+  };
+}
+
 export async function buildCandidatesMessage(candidates = [], slackUserId) {
   // Get all teams and jobs for the dropdowns
   const teams = await TeamService.getTeamsByMember(slackUserId);
@@ -15,7 +58,7 @@ export async function buildCandidatesMessage(candidates = [], slackUserId) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "\n\n*📄 AI-Parsed Candidate Details*",
+        text: "\n\n*📄 Please fill candidate details*",
       },
     },
     {
@@ -25,35 +68,91 @@ export async function buildCandidatesMessage(candidates = [], slackUserId) {
 
   candidates.forEach((candidate, index) => {
     blocks.push(
+      // Name
       {
-        type: "section",
-        fields: [
-          {
-            type: "mrkdwn",
-            text: `*Name:* ${candidate.name || "N/A"}\n`,
-          },
-          {
-            type: "mrkdwn",
-            text: `*Email:* ${candidate.email || "N/A"}\n`,
-          },
-          {
-            type: "mrkdwn",
-            text: `*Phone:* ${candidate.phone || "N/A"}\n`,
-          },
-          {
-            type: "mrkdwn",
-            text: `*Company:* ${candidate.currentCompany || "N/A"}\n`,
-          },
-          {
-            type: "mrkdwn",
-            text: `*Title:* ${candidate.currentTitle || "N/A"}\n`,
-          },
-          {
-            type: "mrkdwn",
-            text: `*Experience:* ${candidate.experienceInMonths ? `${Math.floor(candidate.experienceInMonths / 12)} years and ${candidate.experienceInMonths % 12} months` : "N/A"}\n`,
-          },
-        ],
+        type: "input",
+        block_id: `name_${index}`,
+        label: {
+          type: "plain_text",
+          text: "Name",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "name_input",
+        },
       },
+
+      // Email
+      {
+        type: "input",
+        block_id: `email_${index}`,
+        label: {
+          type: "plain_text",
+          text: "Email",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "email_input",
+        },
+      },
+
+      // Phone
+      {
+        type: "input",
+        block_id: `phone_${index}`,
+        label: {
+          type: "plain_text",
+          text: "Phone",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "phone_input",
+        },
+      },
+
+      // Company
+      {
+        type: "input",
+        block_id: `company_${index}`,
+        label: {
+          type: "plain_text",
+          text: "Current Company",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "company_input",
+        },
+      },
+
+      // Title
+      {
+        type: "input",
+        block_id: `title_${index}`,
+        label: {
+          type: "plain_text",
+          text: "Current Title",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "title_input",
+        },
+      },
+
+      // Experience
+      {
+        type: "input",
+        block_id: `experience_${index}`,
+        label: {
+          type: "plain_text",
+          text: "Experience (in years)",
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "experience_input",
+        },
+      },
+
+      // Resume link (still display)
       {
         type: "section",
         text: {
@@ -61,9 +160,11 @@ export async function buildCandidatesMessage(candidates = [], slackUserId) {
           text: `*📎 Resume:* <${candidate.resumeUrl}|Download Resume>`,
         },
       },
+
+      // Actions
       {
         type: "actions",
-        block_id: `candidate_details_${index}`,
+        block_id: `candidate_actions_${index}`,
         elements: [
           {
             type: "static_select",
@@ -112,13 +213,11 @@ export async function buildCandidatesMessage(candidates = [], slackUserId) {
             },
             style: "primary",
             action_id: "add_candidate",
-            value: JSON.stringify({
-              candidate,
-              index,
-            }),
+            value: JSON.stringify({ index }),
           },
         ],
       },
+
       {
         type: "divider",
       },
@@ -131,14 +230,11 @@ export async function buildCandidatesMessage(candidates = [], slackUserId) {
   };
 }
 
-export async function addCandidate(candidateData, selectedValues, userId) {
-  const selectedTeamId = selectedValues.select_team.selected_option.value;
-  const selectedJobId = selectedValues.select_job.selected_option.value;
-
+export async function addCandidate(candidateData, userId) {
   const query = `
     INSERT INTO candidates 
-    (name, email, phone, current_company, title, resume_url, job_id, created_by, team_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    (name, email, phone, current_company, resume_url, job_id, created_by, team_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *;
   `;
 
@@ -147,11 +243,10 @@ export async function addCandidate(candidateData, selectedValues, userId) {
     candidateData.email,
     candidateData.phone,
     candidateData.currentCompany,
-    candidateData.currentTitle,
     candidateData.resumeUrl,
-    selectedJobId && selectedJobId !== "null" ? selectedJobId : null, // 👈 key line
+    candidateData.jobId ? candidateData.jobId : null, // 👈 key line
     userId,
-    selectedTeamId,
+    candidateData.teamId,
   ];
 
   const result = await db.query(query, values);
@@ -173,4 +268,36 @@ export async function addCandidateBulk(candidateData, jobId, userId, teamId) {
       .join(", ")}`,
   );
   return result.rows;
+}
+
+export async function candidateDropDownOptions(query, teamId, userId) {
+  const dbQuery = `
+    SELECT id, name, phone, email
+FROM candidates
+WHERE team_id = $1
+  AND name ILIKE $2
+ORDER BY 
+  CASE WHEN created_by = $3 THEN 0 ELSE 1 END,
+  created_at DESC
+LIMIT 20;
+  `;
+
+  const values = [teamId, `%${query}%`, userId];
+  console.log("Executing candidate dropdown query with values:", values);
+
+  const result = await db.query(dbQuery, values);
+  return result.rows.map((row) => {
+    const date = new Date(row.created_at).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+    });
+
+    return {
+      text: {
+        type: "plain_text",
+        text: `${row.name} | ${row.phone || "NA"} | ${row.email || "NA"}`,
+      },
+      value: String(row.id),
+    };
+  });
 }
